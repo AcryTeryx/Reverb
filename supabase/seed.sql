@@ -1,0 +1,1 @@
+-- No fictitious catalogue: real release groups are imported on explicit search.

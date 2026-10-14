@@ -1,0 +1,15 @@
+{
+  "name": "reverb",
+  "version": "0.1.1",
+  "private": true,
+  "scripts": {
+    "web": "npm --prefix apps/client run web",
+    "api": "node --env-file=.env.local scripts/server.mjs",
+    "invite": "node --env-file=.env.local scripts/admin.mjs invite",
+    "admin": "node --env-file=.env.local scripts/admin.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:integration": "node --env-file=.env.local --test tests/integration/*.test.mjs",
+    "typecheck": "npm --prefix apps/client run typecheck",
+    "lint": "npm --prefix apps/client run lint"
+  }
+}
