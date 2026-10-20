@@ -22,7 +22,7 @@ async function body(req) {
   }
   return JSON.parse(text || "{}");
 }
-async function allRows(client, table, uid) {
+async function allRows(client, table, uid, order = "album_id") {
   const rows = [];
   for (let offset = 0; ; offset += 500) {
     const page = checked(
@@ -30,7 +30,7 @@ async function allRows(client, table, uid) {
         .from(table)
         .select("*")
         .eq("user_id", uid)
-        .order("album_id")
+        .order(order)
         .range(offset, offset + 499),
     );
     rows.push(...page);
@@ -62,7 +62,7 @@ const server = createServer(async (req, res) => {
   try {
     const path = new URL(req.url, "http://localhost");
     if (path.pathname === "/health" && req.method === "GET")
-      return send(200, { status: "ok", version: "0.1.1" });
+      return send(200, { status: "ok", version: "0.1.2" });
     const token = req.headers.authorization?.replace(/^Bearer /, "");
     if (!token) return send(401, { error: "Connectez-vous pour continuer." });
     const identity = await admin.auth.getUser(token);
@@ -90,24 +90,41 @@ const server = createServer(async (req, res) => {
     if (++bucket.count > 30)
       return send(429, { error: "Trop de demandes. Patientez une minute." });
     if (path.pathname === "/catalog/search" && req.method === "GET") {
-      return send(200, {
-        albums: await searchCatalog(path.searchParams.get("q") ?? ""),
-      });
+      return send(
+        200,
+        await searchCatalog(path.searchParams.get("q") ?? "", {
+          type: path.searchParams.get("type") ?? "albums",
+          scope: path.searchParams.get("scope") ?? "all",
+          offset: path.searchParams.get("offset") ?? 0,
+        }),
+      );
     }
     if (path.pathname === "/account/export" && req.method === "GET") {
       const client = userClient(token);
-      const [profile, ratings, listeningList] = await Promise.all([
-        client
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .single()
-          .then(checked),
-        allRows(client, "ratings", user.id),
-        allRows(client, "listening_list", user.id),
-      ]);
+      const [profile, ratings, listeningList, reviews, listened, journal] =
+        await Promise.all([
+          client
+            .from("profiles")
+            .select("*")
+            .eq("id", user.id)
+            .single()
+            .then(checked),
+          allRows(client, "ratings", user.id),
+          allRows(client, "listening_list", user.id),
+          allRows(client, "reviews", user.id, "id"),
+          allRows(client, "listened_albums", user.id),
+          allRows(client, "journal_events", user.id, "id"),
+        ]);
       const ids = [
-        ...new Set([...ratings, ...listeningList].map((row) => row.album_id)),
+        ...new Set(
+          [
+            ...ratings,
+            ...listeningList,
+            ...reviews,
+            ...listened,
+            ...journal,
+          ].map((row) => row.album_id),
+        ),
       ];
       const albums = [];
       for (let i = 0; i < ids.length; i += 200)
@@ -120,12 +137,15 @@ const server = createServer(async (req, res) => {
           ),
         );
       return send(200, {
-        version: "0.1.1",
+        version: "0.1.2",
         exported_at: new Date().toISOString(),
         email: user.email,
         profile,
         ratings,
         listening_list: listeningList,
+        reviews,
+        listened_albums: listened,
+        journal_events: journal,
         albums,
       });
     }

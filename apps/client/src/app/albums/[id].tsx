@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Badge } from "@/components/ui/badge";
 import { Loading, Notice, errorMessage } from "@/components/common";
+import { AlbumReviews } from "@/components/reviews";
 
 export default function AlbumPage() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -16,6 +17,8 @@ export default function AlbumPage() {
   const [album, setAlbum] = useState<Album | null>(null);
   const [rating, setRating] = useState<number | null>(null);
   const [listed, setListed] = useState(false);
+  const [listened, setListened] = useState(false);
+  const [listChoice, setListChoice] = useState(false);
   const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -25,6 +28,8 @@ export default function AlbumPage() {
     setError("");
     setRating(null);
     setListed(false);
+    setListened(false);
+    setListChoice(false);
     try {
       const result = await db()
         .from("albums")
@@ -37,7 +42,7 @@ export default function AlbumPage() {
         );
       setAlbum(result.data);
       if (session) {
-        const [r, l] = await Promise.all([
+        const [r, l, heard] = await Promise.all([
           db()
             .from("ratings")
             .select("value")
@@ -50,11 +55,18 @@ export default function AlbumPage() {
             .eq("user_id", session.user.id)
             .eq("album_id", id)
             .maybeSingle(),
+          db()
+            .from("listened_albums")
+            .select("album_id")
+            .eq("user_id", session.user.id)
+            .eq("album_id", id)
+            .maybeSingle(),
         ]);
-        if (r.error || l.error)
+        if (r.error || l.error || heard.error)
           throw new Error("Vos données n’ont pas pu être chargées.");
         setRating(r.data?.value ?? null);
         setListed(!!l.data);
+        setListened(!!heard.data);
       }
     } catch (e) {
       setError(errorMessage(e));
@@ -119,10 +131,43 @@ export default function AlbumPage() {
       if (result.error || !result.data?.length)
         throw new Error("La liste n’a pas pu être modifiée.");
       setListed(!listed);
+      setListChoice(false);
       setMessage(
         listed
           ? "Album retiré de votre liste."
           : "Album ajouté à votre liste privée.",
+      );
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function toggleListened() {
+    if (!session || saving) return;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = listened
+        ? await db()
+            .from("listened_albums")
+            .delete()
+            .eq("user_id", session.user.id)
+            .eq("album_id", id)
+            .select()
+        : await db()
+            .from("listened_albums")
+            .insert({ user_id: session.user.id, album_id: id })
+            .select();
+      if (result.error || !result.data?.length)
+        throw new Error("Le statut d’écoute n’a pas pu être enregistré.");
+      setListened(!listened);
+      setListChoice(!listened && listed);
+      setMessage(
+        listened
+          ? "Statut déjà écouté retiré. Vos notes et critiques sont conservées."
+          : "Album marqué comme déjà écouté. Aucune date d’écoute n’est imposée.",
       );
     } catch (e) {
       setError(errorMessage(e));
@@ -160,6 +205,19 @@ export default function AlbumPage() {
             </View>
             {session ? (
               <View className="gap-6">
+                <Button
+                  variant={listened ? "secondary" : "outline"}
+                  className="self-start"
+                  disabled={saving || !!error}
+                  onPress={toggleListened}
+                  accessibilityState={{ selected: listened }}
+                >
+                  <Text>
+                    {listened
+                      ? "Déjà écouté · retirer le statut"
+                      : "Marquer comme déjà écouté"}
+                  </Text>
+                </Button>
                 <View className="gap-2">
                   <Text variant="h3">Votre note</Text>
                   <Stars
@@ -180,6 +238,30 @@ export default function AlbumPage() {
                       : "Ajouter à « À écouter »"}
                   </Text>
                 </Button>
+                {listChoice && (
+                  <View className="gap-3 rounded-lg border border-border p-4">
+                    <Text>
+                      Vous l’avez écouté. Le garder dans votre liste « À écouter
+                      » ?
+                    </Text>
+                    <View className="flex-row flex-wrap gap-3">
+                      <Button
+                        variant="outline"
+                        disabled={saving}
+                        onPress={() => setListChoice(false)}
+                      >
+                        <Text>Garder dans la liste</Text>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={saving}
+                        onPress={toggleList}
+                      >
+                        <Text>Retirer de la liste</Text>
+                      </Button>
+                    </View>
+                  </View>
+                )}
                 <Notice message={message} />
               </View>
             ) : (
@@ -202,12 +284,15 @@ export default function AlbumPage() {
                 <Text>Voir la fiche MusicBrainz ↗</Text>
               </Button>
               <Text variant="muted">
-                L’album regroupe ses différentes éditions. Les critiques et le
-                journal détaillé arriveront avec la V1.
+                L’album regroupe ses différentes éditions. La note, les
+                critiques et le statut d’écoute sont indépendants.
               </Text>
             </View>
           </View>
         </View>
+      )}
+      {album && session && (
+        <AlbumReviews key={`${id}:${session.user.id}`} albumId={id} />
       )}
     </View>
   );

@@ -16,22 +16,23 @@ export default function Privacy() {
       <Text variant="h3">Ce qui est enregistré</Text>
       <Text>
         L’adresse email sert à la connexion et à la récupération du compte. Le
-        profil, les notes et la liste « À écouter » sont conservés dans la base
-        locale. Les mots de passe sont gérés par Supabase Auth. Aucun outil
-        publicitaire ou de mesure d’audience n’est installé.
+        profil, les notes, les critiques, le statut « déjà écouté », le journal
+        et la liste « À écouter » sont conservés dans la base locale. Les mots
+        de passe sont gérés par Supabase Auth. Aucun outil publicitaire ou de
+        mesure d’audience n’est installé.
       </Text>
       <Text variant="h3">Ce qui est visible</Text>
       <Text>
-        Un profil public et ses notes sont lisibles par les visiteurs disposant
-        de son lien. Un profil privé est visible uniquement par son auteur. La
-        liste « À écouter » et l’adresse email ne font pas partie du profil
-        public.
+        Un profil public, ses notes et ses critiques sont lisibles par les
+        visiteurs disposant de son lien. Un profil privé est visible uniquement
+        par son auteur. La liste « À écouter », le statut « déjà écouté », le
+        journal et l’adresse email ne font pas partie du profil public.
       </Text>
       <Text variant="h3">Catalogue et pochettes</Text>
       <Text>
         Les recherches sont transmises à MusicBrainz par le serveur et
-        conservées en cache pendant 24 heures. Les métadonnées des albums
-        consultables restent dans le catalogue pour préserver votre
+        conservées en cache pendant 24 heures. Les métadonnées des albums et
+        morceaux consultables restent dans le catalogue pour préserver votre
         bibliothèque. Les pochettes sont chargées depuis Cover Art Archive et
         ses hébergeurs : ils reçoivent votre adresse IP lors du chargement. Leur
         disponibilité et leurs droits sont indépendants de Reverb.

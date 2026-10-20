@@ -65,6 +65,7 @@ function Shell() {
               [
                 { label: "Bibliothèque", href: "/" },
                 { label: "Recherche", href: "/recherche" },
+                { label: "Journal", href: "/journal" },
                 { label: "Mon profil", href: "/mon-profil" },
                 { label: "Réglages", href: "/parametres" },
               ] as const
@@ -95,7 +96,7 @@ function Shell() {
           <Slot />
         </View>
         <View className="mx-auto w-full max-w-6xl flex-row flex-wrap justify-between gap-4 border-t border-border px-5 py-6 md:px-8">
-          <Text variant="muted">Reverb · V0.1.1 · version locale</Text>
+          <Text variant="muted">Reverb · V0.1.2 · version locale</Text>
           <Link href="/confidentialite">
             <Text variant="muted">Confidentialité et données</Text>
           </Link>

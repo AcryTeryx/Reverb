@@ -5,17 +5,19 @@ import { Pencil } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { useSession } from "@/providers/session";
 import { db } from "@/lib/supabase";
-import type { Profile, Rating } from "@/lib/types";
+import type { Profile, Rating, Review } from "@/lib/types";
 import { AlbumGrid } from "@/components/album";
 import { Loading, Notice, Empty } from "@/components/common";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { ReviewText } from "@/components/reviews";
 export default function PublicProfile() {
   const { username } = useLocalSearchParams<{ username: string }>();
   const { session } = useSession();
   const { colorScheme } = useColorScheme();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [ratings, setRatings] = useState<Rating[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [limit, setLimit] = useState(24);
@@ -41,9 +43,20 @@ export default function PublicProfile() {
                 .limit(limit)
             : null;
           if (r?.error) throw r.error;
+          const critiques = p.data
+            ? await db()
+                .from("reviews")
+                .select("*, albums(*)")
+                .eq("user_id", p.data.id)
+                .order("created_at", { ascending: false })
+                .order("id", { ascending: false })
+                .limit(limit + 1)
+            : null;
+          if (critiques?.error) throw critiques.error;
           if (active) {
             setProfile(p.data);
             setRatings((r?.data ?? []) as Rating[]);
+            setReviews((critiques?.data ?? []) as Review[]);
           }
         } catch {
           if (active) setError("Le profil n’a pas pu être chargé.");
@@ -118,7 +131,23 @@ export default function PublicProfile() {
           detail="Aucun album noté pour le moment."
         />
       )}
-      {ratings.length === limit && (
+      <Text variant="h3">Dernières critiques</Text>
+      {reviews.length ? (
+        reviews.slice(0, limit).map((review) => (
+          <View
+            key={review.id}
+            className="max-w-3xl border-b border-border pb-6"
+          >
+            <ReviewText review={review} showAlbum />
+          </View>
+        ))
+      ) : (
+        <Empty
+          title="Les mots viendront."
+          detail="Aucune critique publiée pour le moment."
+        />
+      )}
+      {(ratings.length === limit || reviews.length > limit) && (
         <Button variant="outline" onPress={() => setLimit(limit + 24)}>
           <Text>Afficher davantage</Text>
         </Button>

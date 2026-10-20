@@ -20,6 +20,7 @@ function Library() {
   const { session } = useSession();
   const [ratings, setRatings] = useState<Rating[]>([]);
   const [list, setList] = useState<ListeningItem[]>([]);
+  const [listened, setListened] = useState<ListeningItem[]>([]);
   const [limit, setLimit] = useState(24);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
@@ -28,7 +29,7 @@ function Library() {
     setBusy(true);
     setError("");
     try {
-      const [r, l] = await Promise.all([
+      const [r, l, heard] = await Promise.all([
         db()
           .from("ratings")
           .select("*, albums(*)")
@@ -41,11 +42,19 @@ function Library() {
           .eq("user_id", session.user.id)
           .order("created_at", { ascending: false })
           .limit(limit),
+        db()
+          .from("listened_albums")
+          .select("*, albums(*)")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false })
+          .order("album_id")
+          .limit(limit),
       ]);
-      if (r.error || l.error)
+      if (r.error || l.error || heard.error)
         throw new Error("La bibliothèque n’a pas pu être chargée.");
       setRatings(r.data as Rating[]);
       setList(l.data as ListeningItem[]);
+      setListened(heard.data as ListeningItem[]);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -111,7 +120,20 @@ function Library() {
               />
             )}
           </View>
-          {(ratings.length === limit || list.length === limit) && (
+          <View className="gap-5">
+            <Text variant="h3">Déjà écoutés</Text>
+            {listened.length ? (
+              <AlbumGrid albums={listened.map((row) => row.albums)} />
+            ) : (
+              <Empty
+                title="Vos écoutes ont leur place ici."
+                detail="Marquez un album comme déjà écouté depuis sa fiche, avec ou sans note."
+              />
+            )}
+          </View>
+          {(ratings.length === limit ||
+            list.length === limit ||
+            listened.length === limit) && (
             <Button variant="outline" onPress={() => setLimit(limit + 24)}>
               <Text>Afficher davantage</Text>
             </Button>

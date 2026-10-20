@@ -1,105 +1,123 @@
-import { setTimeout as sleep } from "node:timers/promises";
 import { admin, checked } from "./db.mjs";
+import { fetchMusicBrainz } from "./musicbrainz.mjs";
+import {
+  PAGE_SIZE,
+  catalogOptions,
+  buildCatalogQuery,
+} from "./catalog-query.mjs";
+export { normalizeQuery } from "./catalog-query.mjs";
 const pending = new Map();
-export function normalizeQuery(query) {
-  return query.trim().replace(/\s+/g, " ").toLowerCase();
-}
-export async function searchCatalog(raw) {
-  const query = normalizeQuery(raw);
-  if (query.length < 2 || query.length > 100)
-    throw new Error("Saisissez entre 2 et 100 caractères.");
-  if (pending.has(query)) return pending.get(query);
-  const work = search(query).finally(() => pending.delete(query));
-  pending.set(query, work);
+
+export async function searchCatalog(raw, options = {}) {
+  const input = catalogOptions(raw, options);
+  const key = JSON.stringify([
+    "paged-v1",
+    input.type,
+    input.scope,
+    input.query,
+    input.offset,
+  ]);
+  if (pending.has(key)) return pending.get(key);
+  const work = search(input, key).finally(() => pending.delete(key));
+  pending.set(key, work);
   return work;
 }
-async function search(query) {
-  const cacheKey = `official-v2:${query}`;
+
+async function search(input, key) {
   checked(
     await admin
-      .from("catalog_cache")
+      .from("catalog_pages")
       .delete()
       .lt("expires_at", new Date().toISOString()),
   );
   const cached = checked(
     await admin
-      .from("catalog_cache")
-      .select("*")
-      .eq("query", cacheKey)
+      .from("catalog_pages")
+      .select("payload")
+      .eq("key", key)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle(),
   );
-  if (cached) {
-    if (!cached.album_ids.length) return [];
-    const albums = checked(
-      await admin.from("albums").select("*").in("id", cached.album_ids),
-    );
-    return cached.album_ids
-      .map((id) => albums.find((album) => album.id === id))
-      .filter(Boolean);
-  }
-  const delay = checked(await admin.rpc("reserve_catalog_slot"));
-  await sleep(delay);
-  // Escape Lucene operators; users search literal title/artist text, not arbitrary queries.
-  const literal = query.replace(/([+\-&|!(){}[\]^"~*?:\\/])/g, "\\$1");
-  const request = new URL("https://musicbrainz.org/ws/2/release-group");
+  if (cached) return cached.payload;
+  const request = new URL(
+    `https://musicbrainz.org/ws/2/${input.type === "albums" ? "release-group" : "recording"}`,
+  );
   request.search = new URLSearchParams({
-    query: `(releasegroup:("${literal}") OR artist:("${literal}")) AND (primarytype:album OR primarytype:ep) AND status:official AND NOT (secondarytype:live OR secondarytype:compilation OR secondarytype:remix OR secondarytype:"dj-mix")`,
+    query: buildCatalogQuery(input),
     fmt: "json",
-    limit: "24",
+    limit: String(PAGE_SIZE),
+    offset: String(input.offset),
   }).toString();
-  const response = await fetch(request, {
-    headers: {
-      "User-Agent":
-        process.env.MUSICBRAINZ_USER_AGENT ||
-        "Reverb/0.1.1 (local personal development)",
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!response.ok)
-    throw new Error(
-      "Le catalogue est momentanément indisponible. Réessayez plus tard.",
-    );
+  const response = await fetchMusicBrainz(request, async () =>
+    checked(await admin.rpc("reserve_catalog_slot")),
+  );
   const data = await response.json();
-  const entries = (data["release-groups"] ?? [])
-    .filter(
-      (group) =>
-        ["Album", "EP"].includes(group["primary-type"]) &&
-        !(group["secondary-types"] ?? []).some((type) =>
-          ["Live", "Compilation", "Remix", "DJ-mix"].includes(type),
-        ),
-    )
-    .map((group) => ({
-      mbid: group.id,
-      title: group.title,
-      artist: (group["artist-credit"] ?? [])
-        .map((credit) => credit.name + (credit.joinphrase ?? ""))
-        .join(""),
-      kind: group["primary-type"],
-      release_date: group["first-release-date"] ?? "",
-      source_url: `https://musicbrainz.org/release-group/${group.id}`,
-      fetched_at: new Date().toISOString(),
-    }));
-  const albums = entries.length
+  const raw =
+    data[input.type === "albums" ? "release-groups" : "recordings"] ?? [];
+  const credit = (item) =>
+    (item["artist-credit"] ?? [])
+      .map(
+        (part) =>
+          (part.name ?? part.artist?.name ?? "") + (part.joinphrase ?? ""),
+      )
+      .join("");
+  const entries =
+    input.type === "albums"
+      ? raw
+          .filter(
+            (group) =>
+              ["Album", "EP"].includes(group["primary-type"]) &&
+              !(group["secondary-types"] ?? []).some((type) =>
+                ["Live", "Compilation", "Remix", "DJ-mix"].includes(type),
+              ),
+          )
+          .map((group) => ({
+            mbid: group.id,
+            title: group.title,
+            artist: credit(group),
+            kind: group["primary-type"],
+            release_date: group["first-release-date"] ?? "",
+            source_url: `https://musicbrainz.org/release-group/${group.id}`,
+            fetched_at: new Date().toISOString(),
+          }))
+      : raw.map((song) => ({
+          mbid: song.id,
+          title: song.title,
+          artist: credit(song),
+          disambiguation: song.disambiguation ?? "",
+          duration_ms: song.length ?? null,
+          first_release_date: song["first-release-date"] ?? "",
+          source_url: `https://musicbrainz.org/recording/${song.id}`,
+          fetched_at: new Date().toISOString(),
+        }));
+  const unique = [
+    ...new Map(entries.map((entry) => [entry.mbid, entry])).values(),
+  ];
+  const rows = unique.length
     ? checked(
         await admin
-          .from("albums")
-          .upsert(entries, { onConflict: "mbid" })
+          .from(input.type === "albums" ? "albums" : "recordings")
+          .upsert(unique, { onConflict: "mbid" })
           .select(),
       )
     : [];
-  const ordered = entries
-    .map((entry) => albums.find((album) => album.mbid === entry.mbid))
+  const ordered = unique
+    .map((entry) => rows.find((row) => row.mbid === entry.mbid))
     .filter(Boolean);
+  const total = Number(data.count ?? raw.length);
+  const next = input.offset + raw.length;
+  const payload = {
+    albums: input.type === "albums" ? ordered : [],
+    recordings: input.type === "recordings" ? ordered : [],
+    total,
+    nextOffset: raw.length && next < total ? next : null,
+  };
   checked(
-    await admin
-      .from("catalog_cache")
-      .upsert({
-        query: cacheKey,
-        album_ids: ordered.map((album) => album.id),
-        expires_at: new Date(Date.now() + 86400000).toISOString(),
-      }),
+    await admin.from("catalog_pages").upsert({
+      key,
+      payload,
+      expires_at: new Date(Date.now() + 86400000).toISOString(),
+    }),
   );
-  return ordered;
+  return payload;
 }

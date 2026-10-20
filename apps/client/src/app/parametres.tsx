@@ -46,7 +46,7 @@ export default function Settings() {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else await Share.share({ message: data });
       setMessage(
-        "Votre export a été préparé. Il contient votre profil, vos notes et votre liste privée.",
+        "Votre export a été préparé. Il contient votre profil, vos notes, vos critiques, votre journal, vos albums déjà écoutés et votre liste privée.",
       );
     } catch (e) {
       setError(errorMessage(e));
@@ -133,8 +133,9 @@ export default function Settings() {
           <CardHeader>
             <CardTitle>Supprimer mon compte</CardTitle>
             <CardDescription>
-              Cette action supprime définitivement votre profil, vos notes et
-              votre liste « À écouter ». Pensez à les exporter avant.
+              Cette action supprime définitivement votre profil, vos notes, vos
+              critiques, votre journal, vos albums déjà écoutés et votre liste «
+              À écouter ». Pensez à les exporter avant.
             </CardDescription>
           </CardHeader>
           <CardContent>
